@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Sticker Editor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+      height: 100vh;
+      width: 100vw;
+      touch-action: none; /* global */
+    }
+
+    #editor {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background-image:
+        linear-gradient(45deg, rgba(255,255,255,0.2) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,0.2) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.2) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.2) 75%);
+      background-size: 15px 15px;
+      background-position: 0 0, 0 7.5px, 7.5px -7.5px, -7.5px 0px;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+      align-items: center;
+      background: pink;
+      padding: 8px;
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      box-sizing: border-box;
+      z-index: 999;
+      gap: 10px;
+    }
+
+    .toolbar button, 
+    .toolbar input[type="color"],
+    .toolbar input[type="range"] {
+      background: transparent;
+      color: black;
+      border: none;
+      padding: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Slider Styling */
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 120px;
+      height: 6px;
+      border-radius: 5px;
+      background: #ddd;
+      outline: none;
+      margin-left: 10px;
+      margin-right: 10px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      background: #ff69b4;
+      cursor: pointer;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      margin-top: -6px;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      background: #ff69b4;
+      cursor: pointer;
+      border-radius: 50%;
+      border: 2px solid #fff;
+    }
+
+    .text-box {
+      position: absolute;
+      min-width: 80px;
+      padding: 5px;
+      font-size: 22px;
+      color: white;
+      background: transparent;
+      font-family: Arial, sans-serif;
+      border: none;
+      user-select: text;
+      touch-action: auto; /* WICHTIG: für Texteingabe */
+      transform-origin: center center;
+      outline: none; /* optional, kein blauer Rahmen */
+      white-space: pre-wrap; /* Um Zeilenumbruch zu erlauben */
+      /* transform initial scale 1 */
+      transform: scale(1);
+    }
+
+    #fontList {
+      position: absolute;
+      left: 10px;
+      bottom: 60px;
+      background: white;
+      color: black;
+      padding: 10px;
+      border-radius: 8px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      z-index: 999;
+      font-size: 18px;
+    }
+
+    .uploaded-img {
+      max-width: 200px;
+      max-height: 200px;
+      position: absolute;
+      touch-action: none;
+    }
+
+    #colorPicker {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      padding: 0;
+      appearance: none;
+      background: conic-gradient(
+        red, yellow, lime, cyan, blue, magenta, red
+      );
+    }
+
+    #trash {
+      position: absolute;
+      right: 12px;
+      bottom: 80px;
+      width: 36px;
+      height: 36px;
+      background: url('https://cdn-icons-png.flaticon.com/512/484/484662.png') no-repeat center;
+      background-size: contain;
+      z-index: 999;
+      filter: brightness(0) invert(1);
+    }
+  </style>
+</head>
+<body>
+  <div id="editor"></div>
+
+  <div class="toolbar">
+    <button onclick="addText()">T</button>
+    <button onclick="document.getElementById('fontUpload').click()">TTF+</button>
+    <button onclick="toggleFontList()">Fonts</button>
+    <input type="color" id="colorPicker" value="#ffffff" />
+    <button onclick="document.getElementById('imageUpload').click()">Bild+</button>
+    <button onclick="downloadPNG()">PNG</button>
+
+    <!-- Slider zur Schriftgröße -->
+    <input type="range" id="fontSizeSlider" min="10" max="72" value="22" title="Schriftgröße" />
+  </div>
+
+  <div id="fontList"></div>
+  <input type="file" id="fontUpload" accept=".ttf" style="display:none" />
+  <input type="file" id="imageUpload" accept="image/*" style="display:none" />
+  <div id="trash"></div>
+
+  <script>
+    const editor = document.getElementById("editor");
+    const colorPicker = document.getElementById("colorPicker");
+    const fontList = document.getElementById("fontList");
+    const trash = document.getElementById("trash");
+    const fontSizeSlider = document.getElementById("fontSizeSlider");
+    let activeBox = null;
+    const customFonts = new Map();
+
+    function addText() {
+      const div = document.createElement("div");
+      div.contentEditable = true;
+      div.className = "text-box";
+      div.style.left = "40px";
+      div.style.top = "150px";
+      div.style.color = colorPicker.value || "#ffffff";
+      div.textContent = "Text hier";
+      div.style.transform = "scale(1)";
+      div.style.fontSize = fontSizeSlider.value + "px";
+      editor.appendChild(div);
+      makeDraggable(div);
+      enablePinchToZoom(div);
+      div.focus();
+      activeBox = div;
+
+      div.addEventListener("focus", () => {
+        activeBox = div;
+        colorPicker.value = rgbToHex(div.style.color) || "#ffffff";
+        fontSizeSlider.value = parseInt(window.getComputedStyle(div).fontSize) || 22;
+      });
+    }
+
+    // Hilfsfunktion um rgb(...) zu hex umzuwandeln (für colorPicker sync)
+    function rgbToHex(rgb) {
+      if (!rgb) return null;
+      const result = rgb.match(/\d+/g);
+      if (!result || result.length < 3) return null;
+      return "#" + result.slice(0,3).map(x => {
+        const hex = parseInt(x).toString(16);
+        return hex.length === 1 ? "0"+hex : hex;
+      }).join("");
+    }
+
+    function makeDraggable(el) {
+      let offsetX, offsetY;
+      let isDragging = false;
+
+      el.addEventListener("touchstart", e => {
+        if (e.touches.length === 1) {
+          const rect = el.getBoundingClientRect();
+          offsetX = e.touches[0].clientX - rect.left;
+          offsetY = e.touches[0].clientY - rect.top;
+          activeBox = el;
+          isDragging = true;
+        }
+      });
+
+      el.addEventListener("touchmove", e => {
+        if (e.touches.length === 1 && isDragging) {
+          e.preventDefault();
+          const x = e.touches[0].clientX - offsetX - editor.getBoundingClientRect().left;
+          const y = e.touches[0].clientY - offsetY - editor.getBoundingClientRect().top;
+          el.style.left = x + "px";
+          el.style.top = y + "px";
+
+          const trashRect = trash.getBoundingClientRect();
+          if (
+            e.touches[0].clientX > trashRect.left &&
+            e.touches[0].clientX < trashRect.right &&
+            e.touches[0].clientY > trashRect.top &&
+            e.touches[0].clientY < trashRect.bottom
+          ) {
+            el.remove();
+            activeBox = null;
+            isDragging = false;
+          }
+        }
+      });
+
+      el.addEventListener("touchend", e => {
+        isDragging = false;
+      });
+    }
+
+    function enablePinchToZoom(el) {
+      let initialDistance = null;
+      let initialScale = 1;
+      const MIN_SCALE = 0.45;
+
+      el.addEventListener("touchstart", e => {
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          initialDistance = Math.hypot(dx, dy);
+          const currentTransform = el.style.transform || "scale(1)";
+          initialScale = parseFloat(currentTransform.match(/scale\(([^)]+)\)/)?.[1] || 1);
+        }
+      });
+
+      el.addEventListener("touchmove", e => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const newDistance = Math.hypot(dx, dy);
+          let scale = (newDistance / initialDistance) * initialScale;
+          if (scale < MIN_SCALE) scale = MIN_SCALE;
+          el.style.transform = `scale(${scale})`;
+        }
+      });
+
+      el.addEventListener("touchend", e => {
+        if (e.touches.length < 2) {
+          initialDistance = null;
+        }
+      });
+    }
+
+    colorPicker.addEventListener("input", () => {
+      if (activeBox) activeBox.style.color = colorPicker.value;
+    });
+
+    // *** NEU: Schriftgröße per Slider anpassen ***
+    fontSizeSlider.addEventListener("input", () => {
+      if (activeBox) {
+        activeBox.style.fontSize = fontSizeSlider.value + "px";
+      }
+    });
+
+    function toggleFontList() {
+      fontList.style.display = fontList.style.display === "none" ? "flex" : "none";
+    }
+
+    document.getElementById("fontUpload").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const fontName = file.name.replace(".ttf", "");
+        const style = document.createElement("style");
+        style.textContent = `@font-face { font-family: '${fontName}'; src: url(${reader.result}); }`;
+        document.head.appendChild(style);
+        customFonts.set(fontName, reader.result);
+        updateFontList();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function updateFontList() {
+      fontList.innerHTML = "";
+      customFonts.forEach((url, name) => {
+        const btn = document.createElement("button");
+        btn.textContent = name;
+        btn.style.fontFamily = `'${name}'`;
+        btn.style.margin = "5px 0";
+        btn.onclick = () => {
+          if (activeBox) activeBox.style.fontFamily = `'${name}'`;
+        };
+        fontList.appendChild(btn);
+      });
+    }
+
+    document.getElementById("imageUpload").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        img.className = "uploaded-img";
+        img.style.left = "60px";
+        img.style.top = "200px";
+        editor.appendChild(img);
+        makeDraggable(img);
+        enablePinchToZoom(img);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    function downloadPNG() {
+      const prevBG = editor.style.background;
+      editor.style.background = "transparent";
+      html2canvas(editor, {
+        backgroundColor: null,
+        useCORS: true
+      }).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "sticker.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        editor.style.background = prevBG;
+      });
+    }
+  </script>
+</body>
+</html>
